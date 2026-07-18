@@ -1,0 +1,34 @@
+{
+  "name": "GCP C++ Backend (Cloud Run / Functions Framework)",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "remoteUser": "vscode",
+  "features": {
+    // Reuses the host's Docker daemon so `pack build` works inside the
+    // container. Harmless if the host has no Docker; deployment then goes
+    // through `gcloud run deploy --source .` (remote Cloud Build) instead.
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+  },
+  "mounts": [
+    // Persist vcpkg's binary cache across container rebuilds. On first use
+    // Docker seeds this volume from the pre-warmed cache baked into the image.
+    "source=transfab-vcpkg-cache,target=/opt/vcpkg-cache,type=volume",
+    // Persist gcloud auth/config across rebuilds.
+    "source=transfab-gcloud-config,target=/home/vscode/.config/gcloud,type=volume"
+  ],
+  "postCreateCommand": "sudo chown -R vscode:vscode /opt/vcpkg-cache /home/vscode/.config/gcloud",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "googlecloudtools.cloudcode"
+      ],
+      "settings": {
+        "cmake.configureOnOpen": true,
+        "cmake.useCMakePresets": "always"
+      }
+    }
+  }
+}

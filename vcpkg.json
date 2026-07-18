@@ -1,0 +1,12 @@
+{
+  "name": "transfab-backend",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "functions-framework-cpp",
+    {
+      "name": "google-cloud-cpp",
+      "default-features": false,
+      "features": ["storage", "pubsub"]
+    }
+  ]
+}
