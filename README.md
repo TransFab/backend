@@ -4,54 +4,118 @@ A C++ HTTP endpoint built with Google's [Functions Framework for C++](https://gi
 and the [google-cloud-cpp](https://github.com/googleapis/google-cloud-cpp) client
 libraries, deployed to **Cloud Run**.
 
-> Note: C++ is not an official Cloud Run functions (formerly Cloud Functions)
-> runtime. The Functions Framework for C++ is Google's GA-supported path for
-> C++ serverless endpoints: same function signature, deployed as a Cloud Run
-> container.
+> **Note:** C++ is not an official Cloud Run functions (formerly Cloud
+> Functions) runtime. The Functions Framework for C++ is Google's GA-supported
+> path for C++ serverless endpoints: you write the same
+> `HttpRequest → HttpResponse` function signature as an official runtime, and
+> it deploys to Cloud Run as a container.
 
-## Develop
+## Prerequisites
 
-Open this folder in VS Code and choose **Reopen in Container**. The first image
-build pre-compiles the framework and GCP libraries via vcpkg (30–60 min once;
-cached afterward in the `transfab-vcpkg-cache` volume).
+- VS Code with the **Dev Containers** extension, and Docker on the host.
+- A GCP project with billing enabled.
 
-Build and run locally:
+## 1. Open the development environment
+
+Open this folder in VS Code and choose **Reopen in Container**.
+
+- The **first** image build pre-compiles `functions-framework-cpp` and
+  `google-cloud-cpp` (storage, pubsub) via vcpkg — expect 30–60 minutes, once.
+  The results are cached in the `transfab-vcpkg-cache` Docker volume and
+  reused across container rebuilds.
+- To skip the pre-compile (build dependencies lazily on first configure
+  instead), set `"args": { "PREWARM_VCPKG": "0" }` under `build` in
+  `.devcontainer/devcontainer.json`.
+
+## 2. Build
+
+From a terminal inside the container:
 
 ```sh
-cmake --preset default
-cmake --build --preset default
-./build/backend --port 8080
-curl localhost:8080
+cmake --preset default          # configure (vcpkg resolves vcpkg.json)
+cmake --build --preset default  # compile → build/backend
 ```
 
-## Authenticate
+Or use the CMake Tools extension — the presets are picked up automatically.
+For an optimized binary use the `release` preset instead of `default`.
+
+## 3. Run and test locally
+
+```sh
+./build/backend --port 8080
+```
+
+In another terminal:
+
+```sh
+curl localhost:8080
+# Hello from the TransFab backend
+```
+
+The framework serves HTTP the same way Cloud Run will (it honors `$PORT`).
+
+## 4. Authenticate with GCP
+
+One-time setup (persists across container rebuilds via a mounted volume):
 
 ```sh
 gcloud auth login
 gcloud config set project YOUR_PROJECT_ID
-gcloud auth application-default login   # for google-cloud-cpp calls during local runs
+gcloud auth application-default login   # credentials for google-cloud-cpp calls in local runs
 ```
 
-Credentials persist across container rebuilds (mounted volume).
+If a browser can't open inside the container, run the printed URL on the host
+and paste the code back.
 
-## Deploy to Cloud Run
+## 5. Deploy to Cloud Run
 
-Remote build (no local Docker needed):
+### Option A — remote build (recommended, no local Docker needed)
 
 ```sh
-gcloud run deploy transfab-backend --source . --region us-central1 --allow-unauthenticated
+gcloud run deploy transfab-backend \
+    --source . \
+    --region us-central1 \
+    --allow-unauthenticated
 ```
 
-Or build locally with buildpacks (uses the host Docker daemon):
+Cloud Build applies Google's buildpacks, detects the C++ Functions Framework,
+builds the image remotely, and deploys it. The command prints the service URL:
+
+```sh
+curl https://transfab-backend-<hash>-uc.a.run.app
+```
+
+Drop `--allow-unauthenticated` for a private endpoint (callers then need an
+identity token: `curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" <url>`).
+
+### Option B — local buildpack build, then deploy
+
+Uses the host Docker daemon (available in the container via
+docker-outside-of-docker):
 
 ```sh
 pack build --builder gcr.io/buildpacks/builder:latest \
     --env GOOGLE_FUNCTION_TARGET=HelloWorld \
-    gcr.io/YOUR_PROJECT_ID/transfab-backend
+    us-central1-docker.pkg.dev/YOUR_PROJECT_ID/REPO/transfab-backend
+
+docker push us-central1-docker.pkg.dev/YOUR_PROJECT_ID/REPO/transfab-backend
+
+gcloud run deploy transfab-backend \
+    --image us-central1-docker.pkg.dev/YOUR_PROJECT_ID/REPO/transfab-backend \
+    --region us-central1 \
+    --allow-unauthenticated
 ```
 
-## Adding GCP services
+`GOOGLE_FUNCTION_TARGET` names the C++ function the buildpack wraps in a
+server (`HelloWorld` in `src/hello_world.cc`). Pushing to Artifact Registry
+requires a repo (`gcloud artifacts repositories create REPO --repository-format=docker --location=us-central1`)
+and Docker auth (`gcloud auth configure-docker us-central1-docker.pkg.dev`).
 
-Add the feature to `vcpkg.json` (e.g. `"spanner"`, `"bigquery"`), the matching
-`find_package`/`target_link_libraries` entries to `CMakeLists.txt`, and
-reconfigure. Available features: <https://vcpkg.io/en/package/google-cloud-cpp>
+## Adding more GCP services
+
+1. Add the feature to `vcpkg.json` (e.g. `"spanner"`, `"bigquery"`).
+2. Add the matching `find_package(google_cloud_cpp_<name>)` and
+   `google-cloud-cpp::<name>` link entry in `CMakeLists.txt`.
+3. Reconfigure: `cmake --preset default`.
+
+Available features: <https://vcpkg.io/en/package/google-cloud-cpp>
