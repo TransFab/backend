@@ -2,7 +2,9 @@
   "name": "transfab-backend",
   "version-string": "0.1.0",
   "dependencies": [
+    "abseil",
     "functions-framework-cpp",
+    "nlohmann-json",
     {
       "name": "google-cloud-cpp",
       "default-features": false,

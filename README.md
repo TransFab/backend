@@ -45,14 +45,32 @@ For an optimized binary use the `release` preset instead of `default`.
 ./build/backend --port 8080
 ```
 
-In another terminal:
+In another terminal, POST an image and decode the returned mesh:
 
 ```sh
-curl localhost:8080
-# Hello from the TransFab backend
+curl -s -X POST localhost:8080 \
+    -H "Content-Type: application/json" \
+    -d "{\"image\": \"$(base64 -w0 input.png)\", \"output_format\": \"obj\"}" \
+    | jq -r .mesh | base64 -d > output.obj
 ```
 
 The framework serves HTTP the same way Cloud Run will (it honors `$PORT`).
+
+### API
+
+`POST /` with a JSON body:
+
+| Field | Type | Description |
+|---|---|---|
+| `image` | string, required | Base64-encoded PNG or JPEG bytes |
+| `output_format` | string, optional | `"ply"` (default) or `"obj"` |
+
+Success response (`200`): `{ "mesh": "<base64 mesh file>", "format": "ply"|"obj", "vertex_count": N, "face_count": M }`.
+Errors return `{ "error": "<message>" }` with a `4xx` status.
+
+The image → mesh reconstruction is not implemented yet: `ProcessImageToMesh()`
+in `src/image_to_mesh.cc` is a marked placeholder that returns a unit square,
+so the endpoint is fully exercisable end to end.
 
 ## 4. Authenticate with GCP
 
@@ -74,6 +92,7 @@ and paste the code back.
 ```sh
 gcloud run deploy transfab-backend \
     --source . \
+    --set-build-env-vars GOOGLE_FUNCTION_TARGET=image_to_mesh \
     --region us-central1 \
     --allow-unauthenticated
 ```
@@ -95,7 +114,7 @@ docker-outside-of-docker):
 
 ```sh
 pack build --builder gcr.io/buildpacks/builder:latest \
-    --env GOOGLE_FUNCTION_TARGET=HelloWorld \
+    --env GOOGLE_FUNCTION_TARGET=image_to_mesh \
     us-central1-docker.pkg.dev/YOUR_PROJECT_ID/REPO/transfab-backend
 
 docker push us-central1-docker.pkg.dev/YOUR_PROJECT_ID/REPO/transfab-backend
@@ -106,10 +125,19 @@ gcloud run deploy transfab-backend \
     --allow-unauthenticated
 ```
 
-`GOOGLE_FUNCTION_TARGET` names the C++ function the buildpack wraps in a
-server (`HelloWorld` in `src/hello_world.cc`). Pushing to Artifact Registry
-requires a repo (`gcloud artifacts repositories create REPO --repository-format=docker --location=us-central1`)
+Pushing to Artifact Registry requires a repo
+(`gcloud artifacts repositories create REPO --repository-format=docker --location=us-central1`)
 and Docker auth (`gcloud auth configure-docker us-central1-docker.pkg.dev`).
+
+### How the buildpack finds the function
+
+`GOOGLE_FUNCTION_TARGET` names a factory function returning `gcf::Function`
+(`image_to_mesh()` in `src/image_to_mesh.cc`). The buildpack generates its own
+`main()` at deploy time and links it against the CMake library target
+`functions_framework_cpp_function` — that target name is a buildpack contract
+(see `CMakeLists.txt`), and its sources must not define a `main()`. The local
+dev server's `main()` lives separately in `src/local_run.cc` and is only built
+for the `backend` executable.
 
 ## Adding more GCP services
 
