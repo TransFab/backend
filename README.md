@@ -87,33 +87,34 @@ and paste the code back.
 
 ## 5. Deploy to Cloud Run
 
-### Option A — remote build (recommended, no local Docker needed)
+One-time project setup:
 
 ```sh
-gcloud run deploy transfab-backend \
-    --source . \
-    --set-build-env-vars GOOGLE_FUNCTION_TARGET=image_to_mesh \
-    --region us-central1 \
-    --allow-unauthenticated
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
 ```
 
-Cloud Build applies Google's buildpacks, detects the C++ Functions Framework,
-builds the image remotely, and deploys it. The command prints the service URL:
+### Option A — local buildpack build, then deploy (the working path)
 
-```sh
-curl https://transfab-backend-<hash>-uc.a.run.app
-```
-
-Drop `--allow-unauthenticated` for a private endpoint (callers then need an
-identity token: `curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" <url>`).
-
-### Option B — local buildpack build, then deploy
+> **Why not `gcloud run deploy --source .`?** Google's current Cloud Build
+> universal builder no longer includes the C++ buildpack, so remote source
+> deploys fail with `No buildpack groups passed detection` (verified
+> 2026-07-19). The same applies to `gcr.io/buildpacks/builder:latest`
+> locally. The `builder:v1` image still ships the C++ Functions Framework
+> buildpack — use it until C++ support returns to the current builders.
 
 Uses the host Docker daemon (available in the container via
-docker-outside-of-docker):
+docker-outside-of-docker). One-time: create an Artifact Registry repo and
+configure Docker auth:
 
 ```sh
-pack build --builder gcr.io/buildpacks/builder:latest \
+gcloud artifacts repositories create REPO --repository-format=docker --location=us-central1
+gcloud auth configure-docker us-central1-docker.pkg.dev
+```
+
+Then build, push, and deploy:
+
+```sh
+pack build --builder gcr.io/buildpacks/builder:v1 \
     --env GOOGLE_FUNCTION_TARGET=image_to_mesh \
     us-central1-docker.pkg.dev/YOUR_PROJECT_ID/REPO/transfab-backend
 
@@ -125,9 +126,42 @@ gcloud run deploy transfab-backend \
     --allow-unauthenticated
 ```
 
-Pushing to Artifact Registry requires a repo
-(`gcloud artifacts repositories create REPO --repository-format=docker --location=us-central1`)
-and Docker auth (`gcloud auth configure-docker us-central1-docker.pkg.dev`).
+The first `pack build` compiles the whole vcpkg dependency tree inside the
+builder and takes a long time; subsequent builds reuse the buildpack's cache
+layers. If `pack` reports the Docker client API version is too old, install
+the latest release from <https://github.com/buildpacks/pack/releases>. A
+transient `network is unreachable` during `docker push` is retryable —
+already-pushed layers are skipped.
+
+The deploy prints the service URL. Test it with the same curl call as in
+section 3, pointing at the URL:
+
+```sh
+curl -s -X POST https://transfab-backend-<hash>-uc.a.run.app \
+    -H "Content-Type: application/json" \
+    -d "{\"image\": \"$(base64 -w0 input.png)\", \"output_format\": \"obj\"}" \
+    | jq -r .mesh | base64 -d > output.obj
+```
+
+Drop `--allow-unauthenticated` for a private endpoint (callers then need an
+identity token: `curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" <url>`).
+
+### Option B — remote build (currently broken for C++)
+
+```sh
+gcloud run deploy transfab-backend \
+    --source . \
+    --set-build-env-vars GOOGLE_FUNCTION_TARGET=image_to_mesh \
+    --region us-central1 \
+    --allow-unauthenticated
+```
+
+This is the intended zero-local-Docker path: Cloud Build applies Google's
+buildpacks, builds the image remotely, and deploys it. As of 2026-07-19 it
+fails during detection (see the note in Option A) because the remote
+universal builder has no C++ buildpack. Kept here in case Google restores
+C++ support. Source uploads honor `.gcloudignore` — keep `build/` listed
+there (it is multiple GB).
 
 ### How the buildpack finds the function
 
