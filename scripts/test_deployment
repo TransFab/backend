@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Check if an image path is provided as an argument
+if test -z ${1}; then echo "No image path given. Exiting."; exit 255; fi
+
+# Set the service URL for the deployed model
+service_url="https://transfab-backend-318974980887.us-central1.run.app"
+
+# Make sure the image is base64 encoded and create a payload for the request
+echo "{\"image\": \"$(base64 -w0 ${1})\", \"output_format\": \"obj\"}" > payload.json
+
+# Send the request to the service and save the output mesh to a file
+curl -s -X POST ${service_url} \
+    -H "Content-Type: application/json" \
+    -d @payload.json \
+    | jq -r .mesh | base64 -d > output.obj
