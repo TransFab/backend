@@ -1,0 +1,6 @@
+.gcloudignore
+.git
+.gitignore
+.devcontainer/
+build/
+build-release/
