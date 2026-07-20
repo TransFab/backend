@@ -13,4 +13,4 @@ echo "{\"image\": \"$(base64 -w0 ${1})\", \"output_format\": \"obj\"}" > payload
 curl -s -X POST ${service_url} \
     -H "Content-Type: application/json" \
     -d @payload.json \
-    | jq -r .mesh | base64 -d > output.obj
+    | tee >(jq -r .mesh | base64 -d > output.obj) >(jq)
